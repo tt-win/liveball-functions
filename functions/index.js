@@ -37,7 +37,7 @@ exports.createStream = onRequest(async (req, res) => {
     }
 
     const newStream = {
-      platform,
+      platform: platform.toUpperCase(),
       key,
       channelId,
       isValid: true,
@@ -47,9 +47,10 @@ exports.createStream = onRequest(async (req, res) => {
     if (!isExist) {
       await createCollection('streams')
     }
-    const docRef = await db.collection('streams').add(newStream)
+    const id = `${platform.toUpperCase()}-${key}`
+    const docRef = await db.collection('streams').doc(id).set(newStream)
 
-    res.status(201).send({ id: docRef.id, message: 'Stream created successfully' })
+    res.send({ id: docRef.id, message: 'Stream created successfully' })
   } catch (error) {
     console.error('Error creating stream:', error)
     res.status(500).send({ error: 'Failed to create stream' })
@@ -62,8 +63,8 @@ exports.getStreams = onRequest(async (req, res) => {
 
     let query = db.collection('streams')
 
-    if (platform) {
-      query = query.where('platform', '==', platform)
+    if (platform && typeof platform === "string") {
+      query = query.where('platform', '==', platform.toUpperCase())
     }
 
     if (channelId) {
@@ -103,7 +104,7 @@ exports.updateStream = onRequest(async (req, res) => {
     }
 
     const updatedStream = {}
-    if(platform != undefined) updatedStream.platform = platform
+    if(platform != undefined && typeof platform === "string") updatedStream.platform = platform.toUpperCase()
     if(key != undefined) updatedStream.key = key
     if(channelId != undefined) updatedStream.channelId = channelId
     if(isValid != undefined) updatedStream.isValid = isValid
@@ -119,7 +120,8 @@ exports.updateStream = onRequest(async (req, res) => {
 
 exports.setLive = onRequest(async (req, res) => {
   try {
-    const { game, url } = req.body
+    const game = req.params[0]
+    const { url } = req.body
 
     if (!game || !url) {
       return res.status(400).send({ error: 'Missing required fields' })
@@ -137,7 +139,7 @@ exports.setLive = onRequest(async (req, res) => {
 
     const querySnapshot = await db.collection('lives').where('game', '==', game).get()
     if (querySnapshot.empty) {
-      const docRef = await db.collection('lives').add(newLive)
+      const docRef = await db.collection('lives').doc(game).set(newLive)
       res.send({ message: 'Live created successfully', id: docRef.id })
     } else {
       const docId = querySnapshot.docs[0].id
