@@ -30,6 +30,9 @@ async function createCollection(collectionName) {
 
 exports.createStream = onRequest(async (req, res) => {
   try {
+    if (req.method !== 'POST') {
+      return res.status(400).send({ error: 'Bad Request' });
+    }
     const { platform, key, channelId } = req.body
 
     if (!platform || !key || !channelId) {
@@ -59,6 +62,9 @@ exports.createStream = onRequest(async (req, res) => {
 
 exports.getStreams = onRequest(async (req, res) => {
   try {
+    if (req.method !== 'GET') {
+      return res.status(400).send({ error: 'Bad Request' });
+    }
     const { platform, channelId } = req.query
 
     let query = db.collection('streams')
@@ -93,6 +99,9 @@ exports.getStreams = onRequest(async (req, res) => {
 // 主要用來修改isValid 通知此組推流設定失效
 exports.updateStream = onRequest(async (req, res) => {
   try {
+    if (req.method !== 'PUT') {
+      return res.status(400).send({ error: 'Bad Request' });
+    }
     const streamId = req.params[0]
     if (!streamId) {
       return res.status(400).send({ error: 'Id is required' })
@@ -120,6 +129,9 @@ exports.updateStream = onRequest(async (req, res) => {
 
 exports.setLive = onRequest(async (req, res) => {
   try {
+    if (req.method !== 'POST') {
+      return res.status(400).send({ error: 'Bad Request' });
+    }
     const game = req.params[0]
     const { url } = req.body
 
@@ -155,6 +167,9 @@ exports.setLive = onRequest(async (req, res) => {
 // 這支API不適合讓彩票前端直接使用(會打得太頻繁)
 exports.getLives = onRequest(async (req, res) => {
   try {
+    if (req.method !== 'GET') {
+      return res.status(400).send({ error: 'Bad Request' });
+    }
     const { game } = req.query
 
     let query = db.collection('lives')
