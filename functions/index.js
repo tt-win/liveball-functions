@@ -7,6 +7,15 @@ const db = admin.firestore()
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
 
+
+function stripProtocol(url) {
+  if (!url || typeof url !== 'string') {
+    return ''
+  }
+  const protocolRegex = /^[^:]+:\/\//
+  return url.replace(protocolRegex, '')
+}
+
 async function checkCollectionExists(collectionName) {
   try {
     const snapshot = await db.collection(collectionName).get()
@@ -33,9 +42,9 @@ exports.createStream = onRequest(async (req, res) => {
     if (req.method !== 'POST') {
       return res.status(400).send({ error: 'Bad Request' });
     }
-    const { platform, key, channelId } = req.body
+    const { platform, key, channelId, pushUrl, liveUrl } = req.body
 
-    if (!platform || !key || !channelId) {
+    if (!platform || !key || !channelId || !pushUrl) {
       return res.status(400).send({ error: 'Missing required fields' })
     }
 
@@ -44,6 +53,8 @@ exports.createStream = onRequest(async (req, res) => {
       key,
       channelId,
       isValid: true,
+      pushUrl: stripProtocol(pushUrl),
+      liveUrl: stripProtocol(liveUrl),
     }
 
     const isExist = await checkCollectionExists('streams')
@@ -106,9 +117,9 @@ exports.updateStream = onRequest(async (req, res) => {
     if (!streamId) {
       return res.status(400).send({ error: 'Id is required' })
     }
-    const { platform, key, channelId, isValid } = req.body
+    const { platform, key, channelId, isValid, pushUrl, liveUrl } = req.body
 
-    if (!platform && !key && !channelId && isValid == undefined) {
+    if (!platform && !key && !channelId && !pushUrl && !liveUrl && isValid == undefined) {
       return res.status(400).send({ error: 'Missing required fields' })
     }
 
@@ -117,6 +128,8 @@ exports.updateStream = onRequest(async (req, res) => {
     if(key != undefined) updatedStream.key = key
     if(channelId != undefined) updatedStream.channelId = channelId
     if(isValid != undefined) updatedStream.isValid = isValid
+    if(pushUrl != undefined) updatedStream.pushUrl = pushUrl
+    if(liveUrl != undefined) updatedStream.liveUrl = liveUrl
 
     await db.collection('streams').doc(streamId).update(updatedStream)
 
