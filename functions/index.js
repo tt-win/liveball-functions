@@ -1,5 +1,7 @@
 const {onRequest} = require("firebase-functions/v2/https")
 // const logger = require("firebase-functions/logger")
+const {Platform, getUserChannel, getPushUrl} = require('./cloudStream')
+
 const admin = require('firebase-admin')
 admin.initializeApp()
 const db = admin.firestore()
@@ -40,9 +42,9 @@ async function createCollection(collectionName) {
 exports.createStream = onRequest(async (req, res) => {
   try {
     if (req.method !== 'POST') {
-      return res.status(400).send({ error: 'Bad Request' });
+      return res.status(400).send({ error: 'Bad Request' })
     }
-    const { platform, key, channelId, pushUrl, liveUrl } = req.body
+    const { platform, key, channelId, pushUrl, liveUrl, ssl } = req.body
 
     if (!platform || !key || !channelId || !pushUrl) {
       return res.status(400).send({ error: 'Missing required fields' })
@@ -55,6 +57,7 @@ exports.createStream = onRequest(async (req, res) => {
       isValid: true,
       pushUrl: stripProtocol(pushUrl),
       liveUrl: stripProtocol(liveUrl),
+      ssl: typeof ssl === 'boolean' ? ssl : true,
     }
 
     const isExist = await checkCollectionExists('streams')
@@ -62,9 +65,9 @@ exports.createStream = onRequest(async (req, res) => {
       await createCollection('streams')
     }
     const id = `${platform.toUpperCase()}-${key}`
-    const docRef = await db.collection('streams').doc(id).set(newStream)
+    await db.collection('streams').doc(id).set(newStream)
 
-    res.send({ id: docRef.id, message: 'Stream created successfully' })
+    res.send({ id, message: 'Stream created successfully' })
   } catch (error) {
     console.error('Error creating stream:', error)
     res.status(500).send({ error: 'Failed to create stream' })
@@ -74,7 +77,7 @@ exports.createStream = onRequest(async (req, res) => {
 exports.getStreams = onRequest(async (req, res) => {
   try {
     if (req.method !== 'GET') {
-      return res.status(400).send({ error: 'Bad Request' });
+      return res.status(400).send({ error: 'Bad Request' })
     }
     const { platform, channelId } = req.query
 
@@ -96,6 +99,7 @@ exports.getStreams = onRequest(async (req, res) => {
       const streamWithId = {
         id: doc.id,
         ...streamData,
+        push: getPushUrl(streamData),
       }
       streams.push(streamWithId)
     })
@@ -107,17 +111,16 @@ exports.getStreams = onRequest(async (req, res) => {
   }
 })
 
-// 主要用來修改isValid 通知此組推流設定失效
 exports.updateStream = onRequest(async (req, res) => {
   try {
     if (req.method !== 'PUT') {
-      return res.status(400).send({ error: 'Bad Request' });
+      return res.status(400).send({ error: 'Bad Request' })
     }
     const streamId = req.params[0]
     if (!streamId) {
       return res.status(400).send({ error: 'Id is required' })
     }
-    const { platform, key, channelId, isValid, pushUrl, liveUrl } = req.body
+    const { platform, key, channelId, isValid, pushUrl, liveUrl, ssl } = req.body
 
     if (!platform && !key && !channelId && !pushUrl && !liveUrl && isValid == undefined) {
       return res.status(400).send({ error: 'Missing required fields' })
@@ -130,6 +133,7 @@ exports.updateStream = onRequest(async (req, res) => {
     if(isValid != undefined) updatedStream.isValid = isValid
     if(pushUrl != undefined) updatedStream.pushUrl = pushUrl
     if(liveUrl != undefined) updatedStream.liveUrl = liveUrl
+    if(ssl != undefined) updatedStream.ssl = ssl
 
     await db.collection('streams').doc(streamId).update(updatedStream)
 
@@ -143,18 +147,18 @@ exports.updateStream = onRequest(async (req, res) => {
 exports.setLive = onRequest(async (req, res) => {
   try {
     if (req.method !== 'POST') {
-      return res.status(400).send({ error: 'Bad Request' });
+      return res.status(400).send({ error: 'Bad Request' })
     }
-    const game = req.params[0]
-    const { url } = req.body
+    const game = req.params[0].toUpperCase()
+    const { streamId } = req.body
 
-    if (!game || !url) {
+    if (!game || !streamId) {
       return res.status(400).send({ error: 'Missing required fields' })
     }
 
-    const newLive = {
-      game,
-      url,
+    const streamsSnapshot = await db.collection('streams').doc(streamId).get()
+    if (!streamsSnapshot.exists) {
+      return res.send({ message: 'Invalid Stream' })
     }
 
     const isExist = await checkCollectionExists('lives')
@@ -162,12 +166,16 @@ exports.setLive = onRequest(async (req, res) => {
       await createCollection('lives')
     }
 
-    const querySnapshot = await db.collection('lives').where('game', '==', game).get()
-    if (querySnapshot.empty) {
+    const newLive = {
+      game,
+      streamId,
+    }
+    const livesSnapshot = await db.collection('lives').where('game', '==', game).get()
+    if (livesSnapshot.empty) {
       const docRef = await db.collection('lives').doc(game).set(newLive)
       res.send({ message: 'Live created successfully', id: docRef.id })
     } else {
-      const docId = querySnapshot.docs[0].id
+      const docId = livesSnapshot.docs[0].id
       await db.collection('lives').doc(docId).update(newLive)
       res.send({ message: 'Live updated successfully', id: docId })
     }
@@ -178,32 +186,37 @@ exports.setLive = onRequest(async (req, res) => {
 })
 
 // 這支API不適合讓彩票前端直接使用(會打得太頻繁)
-exports.getLives = onRequest(async (req, res) => {
+exports.getLive = onRequest(async (req, res) => {
   try {
     if (req.method !== 'GET') {
-      return res.status(400).send({ error: 'Bad Request' });
+      return res.status(400).send({ error: 'Bad Request' })
     }
-    const { game } = req.query
-
-    let query = db.collection('lives')
-
-    if (game) {
-      query = query.where('game', '==', game)
+    const game = req.params[0].toUpperCase()
+    if (!game) {
+      return res.status(400).send({ error: 'Missing required fields' })
     }
+
+    let query = db.collection('lives').where('game', '==', game)
 
     const snapshot = await query.get()
-    const lives = []
+    if (snapshot.empty) {
+      return res.status(404).send({ error: 'No matching live stream found' });
+    }
 
-    snapshot.forEach((doc) => {
-      const liveData = doc.data()
-      const liveWithId = {
-        id: doc.id,
-        ...liveData,
-      }
-      lives.push(liveWithId)
-    })
+    const firstDoc = snapshot.docs[0];
+    const streamId = firstDoc.data().streamId
+    const streamsSnapshot = await db.collection('streams').doc(streamId).get()
+    if (!streamsSnapshot.exists) {
+      return res.status(404).send({ error: 'No matching stream found' })
+    }
+    const streamConfig = streamsSnapshot.data()
 
-    res.send(lives)
+    const liveWithId = {
+      id: firstDoc.id,
+      ...getUserChannel(streamConfig)
+    }
+
+    res.send(liveWithId)
   } catch (error) {
     console.error('Error getting streams:', error)
     res.status(500).send({ error: 'Failed to get streams' })
