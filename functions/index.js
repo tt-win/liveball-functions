@@ -50,6 +50,11 @@ exports.createStream = onRequest(async (req, res) => {
       return res.status(400).send({ error: 'Missing required fields' })
     }
 
+    const platforms = Object.values(Platform)
+    if (platforms.every(p => p !== platform.toUpperCase())) {
+      return res.status(400).send({ error: 'Invalid platform' })
+    }
+
     const newStream = {
       platform: platform.toUpperCase(),
       key,
@@ -127,8 +132,9 @@ exports.updateStream = onRequest(async (req, res) => {
     }
 
     const updatedStream = {}
-    if(platform != undefined && typeof platform === "string") updatedStream.platform = platform.toUpperCase()
-    if(key != undefined) updatedStream.key = key
+    // platform & key用來當id 所以不給更新
+    // if(platform != undefined && typeof platform === "string") updatedStream.platform = platform.toUpperCase()
+    // if(key != undefined) updatedStream.key = key
     if(channelId != undefined) updatedStream.channelId = channelId
     if(isValid != undefined) updatedStream.isValid = isValid
     if(pushUrl != undefined) updatedStream.pushUrl = pushUrl
@@ -141,6 +147,30 @@ exports.updateStream = onRequest(async (req, res) => {
   } catch (error) {
     console.error('Error updating stream:', error)
     res.status(500).send({ error: 'Failed to update stream' })
+  }
+})
+
+exports.deleteStream = onRequest(async (req, res) => {
+  try {
+    if (req.method !== 'DELETE') {
+      return res.status(400).send({ error: 'Bad Request' })
+    }
+    const streamId = req.params[0]
+    if (!streamId) {
+      return res.status(400).send({ error: 'Id is required' })
+    }
+    
+    const streamsSnapshot = await db.collection('streams').doc(streamId).get()
+    if (!streamsSnapshot.exists) {
+      return res.send({ message: 'Invalid Stream' })
+    }
+
+    await db.collection('streams').doc(streamId).delete()
+
+    res.send({ message: 'Stream deleted successfully' })
+  } catch (error) {
+    console.error('Error updating stream:', error)
+    res.status(500).send({ error: 'Failed to delete stream' })
   }
 })
 
